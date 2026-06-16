@@ -1,0 +1,1359 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Perf Smarts · BSAA Cruise Calculators</title>
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    const swCode = `
+const CACHE = 'perfsmarts-v1';
+self.addEventListener('install', e => {
+  e.waitUntil(
+    caches.open(CACHE).then(c => c.addAll([self.location.pathname]))
+  );
+  self.skipWaiting();
+});
+self.addEventListener('activate', e => {
+  e.waitUntil(caches.keys().then(keys =>
+    Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))
+  ));
+  self.clients.claim();
+});
+self.addEventListener('fetch', e => {
+  e.respondWith(
+    caches.match(e.request).then(r => r || fetch(e.request).then(res => {
+      const clone = res.clone();
+      caches.open(CACHE).then(c => c.put(e.request, clone));
+      return res;
+    }))
+  );
+});
+`;
+    const blob = new Blob([swCode], { type: 'application/javascript' });
+    const url  = URL.createObjectURL(blob);
+    navigator.serviceWorker.register(url, { scope: './' })
+      .then(() => URL.revokeObjectURL(url))
+      .catch(() => URL.revokeObjectURL(url));
+  });
+}
+</script>
+<style>
+
+:root {
+  --white:  #ffffff;
+  --amber:  #b45309;
+  --accent-green: #1a7f4b;
+
+  /* 182R - blue */
+  --blue-dark:   #1a3a5c;
+  --blue-mid:    #1e5799;
+  --blue-bright: #2e86de;
+  --blue-light:  #d6e8f7;
+  --blue-pale:   #f0f7ff;
+  --blue-gray-line: #c8daea;
+  --blue-gray-text: #4a6380;
+
+  /* Dakota - green */
+  --green-dark:   #1e4d2b;
+  --green-mid:    #2d7a3f;
+  --green-bright: #3fa854;
+  --green-light:  #d8efde;
+  --green-pale:   #f2faf4;
+  --green-gray-line: #c5e0cd;
+  --green-gray-text: #4a6b52;
+
+  /* 172S - brown */
+  --brown-dark:   #5c2e1a;
+  --brown-mid:    #8a4226;
+  --brown-bright: #b8633c;
+  --brown-light:  #f0dccd;
+  --brown-pale:   #fbf3ed;
+  --brown-gray-line: #e3cbbc;
+  --brown-gray-text: #6e5347;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  background: #eef1f4;
+}
+
+body {
+  color: #222;
+  transition: background 0.2s;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+}
+
+/* ───────── Top-level "Perf Smarts" header ───────── */
+.app-header {
+  background: linear-gradient(135deg, #20242b 0%, #3a4150 100%);
+  color: var(--white);
+  padding: 8px 14px;
+  margin: 10px 14px 0;
+  border-radius: 12px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.18);
+}
+.app-header .header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.logo-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(255,255,255,0.16);
+  border-radius: 20px;
+  padding: 4px 11px 4px 8px;
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+.logo-badge svg { width: 13px; height: 13px; flex-shrink: 0; }
+.app-header .org-name {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  opacity: 0.85;
+}
+.app-header .app-title {
+  font-size: 12px;
+  font-weight: 600;
+  opacity: 0.8;
+  margin-top: 4px;
+}
+
+/* ───────── Tab navigation ───────── */
+.tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px;
+  margin: 12px 14px 0;
+}
+.tab-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 11px 4px;
+  border: none;
+  border-radius: 12px;
+  background: var(--white);
+  color: #888;
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+  transition: all 0.15s;
+}
+.tab-btn .tab-tail { font-size: 11px; font-weight: 700; opacity: 0.65; letter-spacing: 0.06em; }
+.tab-btn.active {
+  color: var(--white);
+  box-shadow: 0 3px 10px rgba(0,0,0,0.18);
+}
+.tab-btn.active .tab-tail { opacity: 0.85; }
+.tab-btn[data-tab="182r"].active   { background: linear-gradient(135deg, var(--blue-mid) 0%, var(--blue-bright) 100%); }
+.tab-btn[data-tab="dakota"].active { background: linear-gradient(135deg, var(--green-mid) 0%, var(--green-bright) 100%); }
+.tab-btn[data-tab="172s"].active   { background: linear-gradient(135deg, var(--brown-mid) 0%, var(--brown-bright) 100%); }
+
+.tab-btn[data-tab="182r"]:not(.active)   { border-bottom: 3px solid var(--blue-bright); }
+.tab-btn[data-tab="dakota"]:not(.active) { border-bottom: 3px solid var(--green-bright); }
+.tab-btn[data-tab="172s"]:not(.active)   { border-bottom: 3px solid var(--brown-bright); }
+.tab-btn[data-tab="182r"]:not(.active)   span:first-child { color: var(--blue-mid); }
+.tab-btn[data-tab="dakota"]:not(.active) span:first-child { color: var(--green-mid); }
+.tab-btn[data-tab="172s"]:not(.active)   span:first-child { color: var(--brown-mid); }
+
+/* ───────── Panel show/hide ───────── */
+.panel { display: none; }
+.panel.active { display: block; }
+
+/* ───────── Body background per theme ───────── */
+body.theme-bg-182r   { background: var(--blue-pale); }
+body.theme-bg-dakota { background: var(--green-pale); }
+body.theme-bg-172s   { background: var(--brown-pale); }
+
+/* ───────── Shared card / form styles ───────── */
+.card {
+  background: var(--white);
+  border-radius: 14px;
+  margin: 14px 14px;
+  padding: 16px;
+}
+.theme-182r   .card { box-shadow: 0 2px 12px rgba(26,58,92,0.10); }
+.theme-dakota .card { box-shadow: 0 2px 12px rgba(30,77,43,0.10); }
+.theme-172s   .card { box-shadow: 0 2px 12px rgba(92,46,26,0.10); }
+
+.field { margin-bottom: 14px; }
+.field:last-child { margin-bottom: 0; }
+label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 6px;
+}
+.theme-182r   label { color: var(--blue-mid); }
+.theme-dakota label { color: var(--green-mid); }
+.theme-172s   label { color: var(--brown-mid); }
+
+input[type=number], select {
+  width: 100%;
+  padding: 12px 14px;
+  font-size: 17px;
+  font-weight: 500;
+  border-radius: 10px;
+  outline: none;
+  -webkit-appearance: none;
+  appearance: none;
+  transition: border-color 0.15s;
+  border: 1.5px solid;
+}
+.theme-182r input[type=number], .theme-182r select {
+  color: var(--blue-dark); background: var(--blue-pale); border-color: var(--blue-gray-line);
+}
+.theme-dakota input[type=number], .theme-dakota select {
+  color: var(--green-dark); background: var(--green-pale); border-color: var(--green-gray-line);
+}
+.theme-172s input[type=number], .theme-172s select {
+  color: var(--brown-dark); background: var(--brown-pale); border-color: var(--brown-gray-line);
+}
+.theme-182r input[type=number]:focus, .theme-182r select:focus { border-color: var(--blue-bright); background: var(--white); }
+.theme-dakota input[type=number]:focus, .theme-dakota select:focus { border-color: var(--green-bright); background: var(--white); }
+.theme-172s input[type=number]:focus, .theme-172s select:focus { border-color: var(--brown-bright); background: var(--white); }
+
+.hint { font-size: 11px; margin-top: 5px; }
+.theme-182r   .hint { color: var(--blue-gray-text); }
+.theme-dakota .hint { color: var(--green-gray-text); }
+.theme-172s   .hint { color: var(--brown-gray-text); }
+
+/* ───────── Calculate button ───────── */
+button.calc-btn {
+  display: block;
+  width: calc(100% - 28px);
+  margin: 0 14px 14px;
+  padding: 14px;
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--white);
+  border: none;
+  border-radius: 14px;
+  cursor: pointer;
+  transition: opacity 0.15s, transform 0.1s;
+}
+button.calc-btn:active { opacity: 0.88; transform: scale(0.98); }
+.theme-182r   button.calc-btn { background: linear-gradient(135deg, var(--blue-mid) 0%, var(--blue-bright) 100%);   box-shadow: 0 4px 14px rgba(30,87,153,0.35); }
+.theme-dakota button.calc-btn { background: linear-gradient(135deg, var(--green-mid) 0%, var(--green-bright) 100%); box-shadow: 0 4px 14px rgba(45,122,63,0.35); }
+.theme-172s   button.calc-btn { background: linear-gradient(135deg, var(--brown-mid) 0%, var(--brown-bright) 100%); box-shadow: 0 4px 14px rgba(138,66,38,0.35); }
+
+/* ───────── Results header ───────── */
+.results-box { display: none; }
+.results-box.show { display: block; }
+.results-header {
+  color: var(--white);
+  border-radius: 14px 14px 0 0;
+  padding: 14px 18px;
+  margin: 0 14px;
+  font-size: 13px;
+}
+.results-header .rh-title { font-weight: 700; font-size: 15px; margin-bottom: 2px; }
+.results-header .rh-sub { opacity: 0.72; font-size: 12px; }
+.theme-182r   .results-header { background: var(--blue-dark); }
+.theme-dakota .results-header { background: var(--green-dark); }
+.theme-172s   .results-header { background: var(--brown-dark); }
+
+/* ───────── Column headers (182R / 172S layout) ───────── */
+.col-head {
+  margin: 0 14px;
+  padding: 8px 18px;
+  display: grid;
+  gap: 4px;
+}
+.col-head span {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+}
+.theme-182r .col-head { background: var(--blue-light); grid-template-columns: 1fr 1fr 1fr 1fr 1fr; }
+.theme-182r .col-head span { color: var(--blue-mid); }
+.theme-172s .col-head { background: var(--brown-light); grid-template-columns: 1fr 1fr 1fr 1fr; }
+.theme-172s .col-head span { color: var(--brown-mid); }
+
+/* ───────── Result rows (182R / 172S layout) ───────── */
+.result-row {
+  background: var(--white);
+  margin: 0 14px;
+  padding: 14px 18px;
+  display: grid;
+  align-items: center;
+  gap: 4px;
+}
+.result-row:last-child { border-bottom: none; border-radius: 0 0 14px 14px; margin-bottom: 0; }
+.theme-182r .result-row { grid-template-columns: 1fr 1fr 1fr 1fr 1fr; border-bottom: 1px solid var(--blue-light); }
+.theme-182r .result-row.best { background: #edf7f1; }
+.theme-172s .result-row { grid-template-columns: 1fr 1fr 1fr 1fr; border-bottom: 1px solid var(--brown-light); }
+.theme-172s .result-row.best { background: #fdf1ea; }
+
+.cell { font-size: 15px; font-weight: 600; }
+.cell.pct { font-size: 13px; }
+.cell.gph-best { color: var(--accent-green); }
+.theme-182r .cell { color: var(--blue-dark); }
+.theme-182r .cell.pct { color: var(--blue-gray-text); }
+.theme-182r .cell.rpm-mp { font-size: 12px; color: var(--blue-mid); font-weight: 700; }
+.theme-172s .cell { color: var(--brown-dark); }
+.theme-172s .cell.pct { color: var(--brown-gray-text); }
+.theme-172s .cell.rpm { font-size: 13px; color: var(--brown-mid); font-weight: 700; }
+
+/* ───────── Dakota result groups ───────── */
+.group { background: var(--white); margin: 0 14px; }
+.group-head {
+  padding: 10px 18px;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  border-top: 1px solid var(--green-gray-line);
+}
+.group-head .gh-pct { font-size: 14px; font-weight: 700; color: var(--green-dark); }
+.group-head .gh-perf { font-size: 12px; color: var(--green-gray-text); }
+.group-head .gh-perf .gph-val { color: var(--green-mid); font-weight: 700; }
+.theme-dakota .group-head { background: var(--green-light); }
+.theme-dakota .col-head-dakota {
+  background: var(--green-pale);
+  padding: 6px 18px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+}
+.theme-dakota .col-head-dakota span {
+  font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: var(--green-mid);
+}
+.rpm-row {
+  padding: 10px 18px;
+  border-bottom: 1px solid var(--green-light);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-items: center;
+}
+.rpm-row:last-of-type { border-bottom: none; }
+.group:last-child .rpm-row:last-of-type { border-radius: 0 0 14px 14px; }
+.cell-rpm { font-size: 14px; font-weight: 700; color: var(--green-mid); }
+.cell-mp { font-size: 15px; font-weight: 600; color: var(--green-dark); }
+.cell-mp.ft { color: var(--amber); font-weight: 700; }
+.group.best .group-head { background: #ddf2e2; }
+
+/* ───────── Shared badges / no-results / footers ───────── */
+.badge {
+  display: inline-block;
+  color: var(--white);
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-left: 4px;
+  vertical-align: middle;
+}
+.theme-182r   .badge, .theme-172s .badge { background: var(--accent-green); }
+.theme-dakota .badge { background: var(--green-bright); margin-left: 6px; }
+
+.no-results {
+  background: var(--white);
+  margin: 0 14px;
+  padding: 20px 18px;
+  border-radius: 0 0 14px 14px;
+  text-align: center;
+}
+.no-results .nr-main { color: var(--amber); font-size: 14px; font-weight: 600; margin-bottom: 6px; }
+.no-results .nr-sub { font-size: 12px; line-height: 1.5; }
+.theme-182r   .no-results .nr-sub { color: var(--blue-gray-text); }
+.theme-dakota .no-results .nr-sub { color: var(--green-gray-text); }
+.theme-172s   .no-results .nr-sub { color: var(--brown-gray-text); }
+
+.interp-note {
+  margin: 8px 14px 16px;
+  font-size: 11px;
+  text-align: center;
+}
+.theme-182r   .interp-note { color: var(--blue-gray-text); }
+.theme-dakota .interp-note { color: var(--green-gray-text); }
+.theme-172s   .interp-note { color: var(--brown-gray-text); }
+
+.ac-footer {
+  text-align: center;
+  padding: 8px 20px 20px;
+  font-size: 11px;
+}
+.theme-182r   .ac-footer { color: var(--blue-gray-text); }
+.theme-dakota .ac-footer { color: var(--green-gray-text); }
+.theme-172s   .ac-footer { color: var(--brown-gray-text); }
+
+</style>
+</head>
+<body class="theme-bg-182r" id="appBody">
+
+<header class="app-header">
+  <div class="header-row">
+    <div class="logo-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 12 L15.5 8"/><circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none"/></svg><span>Perf Smarts</span></div>
+    <div class="org-name">BSAA</div>
+  </div>
+  <div class="app-title">Cruise Power Calculators</div>
+</header>
+
+<nav class="tabs">
+  <button class="tab-btn active" data-tab="182r">
+    <span>182R</span>
+    <span class="tab-tail">N9758H</span>
+  </button>
+  <button class="tab-btn" data-tab="dakota">
+    <span>Dakota</span>
+    <span class="tab-tail">N2915M</span>
+  </button>
+  <button class="tab-btn" data-tab="172s">
+    <span>172S</span>
+    <span class="tab-tail">N642SP</span>
+  </button>
+</nav>
+
+<!-- ═══════════════════════ 182R PANEL ═══════════════════════ -->
+<div class="panel theme-182r active" id="panel-182r">
+
+  <div class="card">
+    <div class="field">
+      <label>Pressure Altitude (ft)</label>
+      <select id="alt-182r"></select>
+    </div>
+    <div class="field">
+      <label>Outside Air Temp (°C)</label>
+      <select id="oat-182r"></select>
+      <div class="hint" id="isaDev-182r"></div>
+    </div>
+    <div class="field">
+      <label>Desired Power (%HP)</label>
+      <select id="pct-182r"></select>
+      <div class="hint">Shows all settings within ±3% of desired</div>
+    </div>
+  </div>
+
+  <button id="calcBtn-182r" class="calc-btn">Calculate Power Settings</button>
+
+  <div class="results-box" id="results-182r">
+    <div class="results-header">
+      <div class="rh-title" id="rh-title-182r"></div>
+      <div class="rh-sub" id="rh-sub-182r"></div>
+    </div>
+    <div class="col-head" id="col-head-182r">
+      <span>RPM</span>
+      <span>M.P.</span>
+      <span>%HP</span>
+      <span>TAS</span>
+      <span>GPH</span>
+    </div>
+    <div id="result-rows-182r"></div>
+    <div class="interp-note">Interpolated from POH Section 5 · 3,100 lb · Cowl flaps closed</div>
+  </div>
+
+  <div class="ac-footer">Cessna 182R POH · Section 5 Performance · 3,100 lb gross weight</div>
+</div>
+
+<!-- ═══════════════════════ DAKOTA PANEL ═══════════════════════ -->
+<div class="panel theme-dakota" id="panel-dakota">
+
+  <div class="card">
+    <div class="field">
+      <label>Pressure Altitude (ft)</label>
+      <select id="alt-dakota"></select>
+    </div>
+    <div class="field">
+      <label>Outside Air Temp (°C)</label>
+      <select id="oat-dakota"></select>
+      <div class="hint" id="isaDev-dakota"></div>
+    </div>
+    <div class="field">
+      <label>Desired Power (%HP)</label>
+      <select id="pct-dakota"></select>
+      <div class="hint">Shows settings at ±3% of desired (55–75% range)</div>
+    </div>
+  </div>
+
+  <button id="calcBtn-dakota" class="calc-btn">Calculate Power Settings</button>
+
+  <div class="results-box" id="results-dakota">
+    <div class="results-header">
+      <div class="rh-title" id="rh-title-dakota"></div>
+      <div class="rh-sub" id="rh-sub-dakota"></div>
+    </div>
+    <div id="result-groups-dakota"></div>
+    <div class="interp-note">Interpolated from POH Section 5 · Cowl flaps closed · F.T. = Full Throttle</div>
+  </div>
+
+  <div class="ac-footer">Piper PA-28-236 Dakota POH · Section 5 Performance</div>
+</div>
+
+<!-- ═══════════════════════ 172S PANEL ═══════════════════════ -->
+<div class="panel theme-172s" id="panel-172s">
+
+  <div class="card">
+    <div class="field">
+      <label>Pressure Altitude (ft)</label>
+      <select id="alt-172s"></select>
+    </div>
+    <div class="field">
+      <label>Outside Air Temp (°C)</label>
+      <select id="oat-172s"></select>
+      <div class="hint" id="isaDev-172s"></div>
+    </div>
+    <div class="field">
+      <label>Desired Power (%HP)</label>
+      <select id="pct-172s"></select>
+      <div class="hint">Shows all settings within ±3% of desired</div>
+    </div>
+  </div>
+
+  <button id="calcBtn-172s" class="calc-btn">Calculate Power Settings</button>
+
+  <div class="results-box" id="results-172s">
+    <div class="results-header">
+      <div class="rh-title" id="rh-title-172s"></div>
+      <div class="rh-sub" id="rh-sub-172s"></div>
+    </div>
+    <div class="col-head" id="col-head-172s">
+      <span>RPM</span>
+      <span>%HP</span>
+      <span>TAS</span>
+      <span>GPH</span>
+    </div>
+    <div id="result-rows-172s"></div>
+    <div class="interp-note">Interpolated from POH Section 5 · Cowl flaps closed</div>
+  </div>
+
+  <div class="ac-footer">Cessna 172S POH · Section 5 Performance</div>
+</div>
+
+<script>
+// ═══════════════════════ TAB SWITCHING ═══════════════════════
+function isaTemp(altFt) { return 15 - (altFt / 1000) * 1.9812; }
+
+const tabBodyClass = {
+  '182r': 'theme-bg-182r',
+  'dakota': 'theme-bg-dakota',
+  '172s': 'theme-bg-172s',
+};
+
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const tab = btn.dataset.tab;
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b === btn));
+    document.querySelectorAll('.panel').forEach(p => p.classList.toggle('active', p.id === `panel-${tab}`));
+    const body = document.getElementById('appBody');
+    Object.values(tabBodyClass).forEach(c => body.classList.remove(c));
+    body.classList.add(tabBodyClass[tab]);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  });
+});
+
+// ═══════════════════════ 182R LOGIC ═══════════════════════
+
+const POH_182R = {
+  2000: { temps:[-9,11,31],
+    2400:{22:[77,132,13.1,74,133,12.6,71,134,12.2],21:[72,129,12.3,69,130,11.8,67,131,11.4],20:[67,126,11.5,65,126,11.1,63,127,10.7],19:[62,122,10.7,60,122,10.3,58,122,10.0]},
+    2300:{23:[78,133,13.3,75,134,12.8,72,135,12.4],22:[73,130,12.5,70,131,12.0,68,131,11.6],21:[68,126,11.7,66,127,11.3,64,128,10.9],20:[64,123,10.9,62,123,10.5,60,123,10.2]},
+    2200:{23:[73,130,12.5,70,131,12.0,68,131,11.6],22:[69,127,11.7,66,127,11.3,64,128,10.9],21:[64,123,11.0,62,124,10.6,60,124,10.2],20:[60,119,10.2,58,120,9.9,56,120,9.6]},
+    2100:{23:[68,126,11.6,66,127,11.2,64,127,10.8],22:[64,123,10.9,62,123,10.5,60,124,10.2],21:[60,119,10.2,58,120,9.9,56,120,9.6],20:[56,115,9.6,54,115,9.3,52,115,9.0],19:[52,111,9.0,50,110,8.7,48,109,8.5],18:[47,106,8.4,46,105,8.1,44,103,7.9]}
+  },
+  4000: { temps:[-13,7,27],
+    2400:{22:[null,null,null,76,137,13.0,73,138,12.5],21:[74,133,12.6,71,134,12.1,69,134,11.7],20:[69,129,11.8,66,130,11.3,64,130,11.0],19:[64,125,10.9,62,126,10.6,60,126,10.2]},
+    2300:{23:[null,null,null,76,138,13.1,74,139,12.6],22:[75,133,12.8,72,134,12.3,70,135,11.9],21:[70,130,12.0,68,131,11.5,65,131,11.2],20:[66,126,11.2,63,127,10.8,61,127,10.4]},
+    2200:{23:[75,133,12.8,72,134,12.3,70,135,11.9],22:[70,130,12.0,68,131,11.6,66,131,11.2],21:[66,127,11.3,64,127,10.9,61,127,10.5],20:[62,123,10.5,59,123,10.2,57,123,9.8]},
+    2100:{23:[70,130,11.9,67,131,11.5,65,131,11.1],22:[66,126,11.2,63,127,10.8,61,127,10.4],21:[62,123,10.5,59,123,10.1,57,123,9.8],20:[57,119,9.8,55,119,9.5,53,118,9.3],19:[53,114,9.2,51,114,8.9,50,113,8.7],18:[49,109,8.6,47,108,8.3,46,106,8.1]}
+  },
+  6000: { temps:[-17,3,23],
+    2400:{22:[null,null,null,77,141,13.3,75,142,12.8],21:[75,136,12.9,73,137,12.4,70,138,12.0],20:[71,133,12.1,68,133,11.6,66,134,11.2],19:[66,129,11.2,64,129,10.8,61,129,10.5]},
+    2300:{22:[77,137,13.1,74,138,12.6,71,135,12.2],21:[72,134,12.3,69,134,11.8,67,131,11.4],20:[67,130,11.5,65,130,11.1,63,127,10.7],19:[63,126,10.7,60,126,10.3,58,121,10.0]},
+    2200:{22:[72,134,12.3,69,135,11.9,67,135,11.5],21:[68,130,11.6,65,131,11.1,63,131,10.8],20:[63,126,10.8,61,127,10.4,59,127,10.1],19:[59,122,10.1,57,122,9.7,55,121,9.5]},
+    2100:{22:[67,130,11.5,65,131,11.1,63,131,10.7],21:[63,126,10.8,61,127,10.4,59,127,10.1],20:[59,122,10.1,57,122,9.8,55,122,9.5],19:[55,118,9.5,53,117,9.2,51,116,8.9],18:[51,113,8.8,49,111,8.6,47,110,8.3],17:[47,107,8.2,45,105,8.0,43,103,7.8]}
+  },
+  8000: { temps:[-21,-1,19],
+    2400:{21:[77,140,13.3,74,141,12.7,72,142,12.3],20:[72,136,12.4,70,137,11.9,67,138,11.5],19:[68,132,11.5,65,133,11.1,63,133,10.7],18:[63,128,10.7,60,128,10.3,58,128,10.0]},
+    2300:{21:[74,137,12.6,71,138,12.6,69,139,11.7],20:[69,134,11.8,66,134,11.8,64,134,11.0],19:[64,130,11.0,62,130,11.0,60,129,10.2],18:[60,125,10.2,58,125,10.2,56,124,9.6]},
+    2200:{21:[69,134,11.8,67,135,11.4,65,135,11.0],20:[65,130,11.1,63,130,10.7,60,130,10.3],19:[61,126,10.3,58,126,10.0,56,125,9.7],18:[56,121,9.7,54,120,9.3,52,119,9.1]},
+    2100:{21:[65,130,11.1,63,130,10.7,60,130,10.3],20:[61,126,10.4,59,126,10.0,57,125,9.7],19:[57,122,9.7,54,121,9.4,53,120,9.1],18:[52,116,9.1,50,115,8.8,49,113,8.5],17:[48,110,8.5,46,108,8.2,45,106,8.0]}
+  },
+  10000: { temps:[-25,-5,15],
+    2400:{20:[74,140,12.7,71,141,12.2,69,141,11.8],19:[69,136,11.8,67,137,11.4,64,137,11.0],18:[65,132,11.0,62,132,10.6,60,131,10.2],17:[60,127,10.2,57,126,9.8,55,125,9.5]},
+    2300:{20:[71,137,12.1,68,138,11.6,66,138,11.2],19:[66,133,11.3,64,133,10.9,61,133,10.5],18:[61,129,10.5,59,128,10.1,57,128,9.8],17:[57,123,9.7,55,122,9.4,53,121,9.1]},
+    2200:{20:[67,134,11.4,64,134,11.0,62,134,10.6],19:[62,129,10.6,60,129,10.2,58,129,9.9],18:[58,125,9.9,56,124,9.6,54,123,9.3],17:[53,119,9.2,51,118,8.9,50,116,8.7]},
+    2100:{20:[63,130,10.7,60,130,10.3,58,129,9.9],19:[58,125,10.0,56,124,9.6,54,123,9.4],18:[54,120,9.3,52,119,9.0,50,117,8.8],17:[50,114,8.7,48,112,8.4,46,110,8.2],16:[46,107,8.1,44,104,7.8,42,102,7.6]}
+  },
+  12000: { temps:[-29,-9,11],
+    2400:{18:[66,136,11.3,64,136,10.9,61,135,10.5],17:[61,130,10.5,59,130,10.1,57,129,9.8],16:[56,124,9.7,54,123,9.4,52,122,9.1],15:[51,117,9.0,50,116,8.7,48,114,8.4]},
+    2300:{18:[63,132,10.8,61,132,10.4,59,131,10.0],17:[58,127,10.0,56,126,9.7,54,125,9.4],16:[54,121,9.3,52,119,9.0,50,117,8.7],15:[49,113,8.6,47,112,8.3,45,109,8.1]},
+    2200:{18:[59,128,10.2,57,128,9.8,55,126,9.5],17:[55,123,9.5,53,121,9.2,51,119,8.9],16:[51,116,8.8,49,114,8.5,47,112,8.3],15:[46,108,8.2,44,106,7.9,43,103,7.7]},
+    2100:{18:[56,124,9.6,54,122,9.3,52,120,9.0],17:[51,117,8.9,49,115,8.7,48,113,8.4],16:[47,110,8.3,45,108,8.1,44,106,7.8]}
+  }
+};
+
+const ALT_182R = [2000, 4000, 6000, 8000, 10000, 12000];
+
+// Populate altitude select with 500ft increments
+(function buildAltSelect182R() {
+  const sel = document.getElementById('alt-182r');
+  for (let a = 2000; a <= 12000; a += 500) {
+    const opt = document.createElement('option');
+    opt.value = a;
+    opt.textContent = a.toLocaleString() + ' ft' + (ALT_182R.includes(a) ? '' : ' ✦');
+    if (a === 6000) opt.selected = true;
+    sel.appendChild(opt);
+  }
+})();
+
+// Populate OAT select (-25°C to 42°C)
+(function buildOatSelect182R() {
+  const sel = document.getElementById('oat-182r');
+  for (let t = -25; t <= 42; t++) {
+    const opt = document.createElement('option');
+    opt.value = t;
+    opt.textContent = t + '°C';
+    if (t === 15) opt.selected = true;
+    sel.appendChild(opt);
+  }
+})();
+
+// Populate desired power select (50%-75% in 5% steps)
+(function buildPctSelect182R() {
+  const sel = document.getElementById('pct-182r');
+  for (let p = 50; p <= 75; p += 5) {
+    const opt = document.createElement('option');
+    opt.value = p;
+    opt.textContent = p + '%';
+    if (p === 65) opt.selected = true;
+    sel.appendChild(opt);
+  }
+})();
+
+
+function tempFrac182R(oat, temps) {
+  if (oat <= temps[0]) return [0, 0, 0];
+  if (oat >= temps[2]) return [2, 2, 0];
+  if (oat <= temps[1]) return [0, 1, (oat - temps[0]) / (temps[1] - temps[0])];
+  return [1, 2, (oat - temps[1]) / (temps[2] - temps[1])];
+}
+
+function interpRow182R(vals, oat, temps) {
+  const [lo, hi, f] = tempFrac182R(oat, temps);
+  const lb = lo * 3, hb = hi * 3;
+  if (vals[lb] == null || vals[hb] == null) return null;
+  return {
+    pct: vals[lb]   + (vals[hb]   - vals[lb])   * f,
+    tas: vals[lb+1] + (vals[hb+1] - vals[lb+1]) * f,
+    gph: vals[lb+2] + (vals[hb+2] - vals[lb+2]) * f,
+  };
+}
+
+function getAllAtAlt182R(alt, oat) {
+  const data = POH_182R[alt];
+  const out = {};
+  for (const rpm of [2400, 2300, 2200, 2100]) {
+    if (!data[rpm]) continue;
+    for (const mp of Object.keys(data[rpm]).map(Number)) {
+      const r = interpRow182R(data[rpm][mp], oat, data.temps);
+      if (r) out[`${rpm},${mp}`] = { rpm, mp, ...r };
+    }
+  }
+  return out;
+}
+
+function calculate182R(altFt, oat, wantPct) {
+  let blended;
+  if (ALT_182R.includes(altFt)) {
+    blended = getAllAtAlt182R(altFt, oat);
+  } else {
+    const loAlt = Math.max(...ALT_182R.filter(a => a < altFt));
+    const hiAlt = Math.min(...ALT_182R.filter(a => a > altFt));
+    const altF  = (altFt - loAlt) / (hiAlt - loAlt);
+    const loR   = getAllAtAlt182R(loAlt, oat);
+    const hiR   = getAllAtAlt182R(hiAlt, oat);
+    blended = {};
+    for (const key of Object.keys(loR)) {
+      if (!hiR[key]) continue;
+      const lo = loR[key], hi = hiR[key];
+      blended[key] = {
+        rpm: lo.rpm, mp: lo.mp,
+        pct: lo.pct + (hi.pct - lo.pct) * altF,
+        tas: lo.tas + (hi.tas - lo.tas) * altF,
+        gph: lo.gph + (hi.gph - lo.gph) * altF,
+      };
+    }
+  }
+
+  const allPcts = Object.values(blended).map(v => v.pct);
+  const maxPct  = allPcts.length ? Math.round(Math.max(...allPcts)) : 0;
+
+  let candidates = Object.values(blended)
+    .filter(v => Math.abs(v.pct - wantPct) <= 3)
+    .map(v => ({ rpm: v.rpm, mp: v.mp,
+      pct: Math.round(v.pct), tas: Math.round(v.tas), gph: Math.round(v.gph * 10) / 10 }))
+    .sort((a, b) => a.gph - b.gph);
+
+  // If nothing in the grid lands within ±3% of the target, but the target
+  // is reachable by interpolating manifold pressure within an RPM row,
+  // calculate that intermediate MP setting directly.
+  if (candidates.length === 0) {
+    const byRpm = {};
+    for (const v of Object.values(blended)) {
+      if (!byRpm[v.rpm]) byRpm[v.rpm] = [];
+      byRpm[v.rpm].push(v);
+    }
+    const interpCandidates = [];
+    for (const rpmKey of Object.keys(byRpm)) {
+      const rows = byRpm[rpmKey].slice().sort((a, b) => a.mp - b.mp);
+      for (let i = 0; i < rows.length - 1; i++) {
+        const a = rows[i], b = rows[i+1];
+        const lo = Math.min(a.pct, b.pct), hi = Math.max(a.pct, b.pct);
+        if (wantPct >= lo && wantPct <= hi && hi !== lo) {
+          const f = (wantPct - a.pct) / (b.pct - a.pct);
+          const mp  = a.mp  + f * (b.mp  - a.mp);
+          const tas = a.tas + f * (b.tas - a.tas);
+          const gph = a.gph + f * (b.gph - a.gph);
+          interpCandidates.push({
+            rpm: Number(rpmKey), mp: Math.round(mp * 2) / 2,
+            pct: Math.round(wantPct), tas: Math.round(tas), gph: Math.round(gph * 10) / 10,
+            interpolated: true,
+          });
+          break;
+        }
+      }
+    }
+    candidates = interpCandidates.sort((a, b) => a.gph - b.gph);
+  }
+
+  return { results: candidates, maxPct };
+}
+
+function updateIsaHint182R() {
+  const alt = parseInt(document.getElementById('alt-182r').value);
+  const oat = parseFloat(document.getElementById('oat-182r').value);
+  if (isNaN(oat)) return;
+  const isa = isaTemp(alt);
+  const dev = oat - isa;
+  const sign = dev >= 0 ? '+' : '';
+  document.getElementById('isaDev-182r').textContent =
+    `ISA ${sign}${dev.toFixed(1)}°C  (ISA = ${isa.toFixed(1)}°C at ${(alt/1000).toFixed(1)}k ft)`;
+}
+
+function render182R() {
+  const alt  = parseInt(document.getElementById('alt-182r').value);
+  const oat  = parseFloat(document.getElementById('oat-182r').value);
+  const want = parseFloat(document.getElementById('pct-182r').value);
+
+  const { results, maxPct } = calculate182R(alt, oat, want);
+
+  const resultsDiv = document.getElementById('results-182r');
+  const rowsDiv    = document.getElementById('result-rows-182r');
+  const colHead    = document.getElementById('col-head-182r');
+  const title      = document.getElementById('rh-title-182r');
+  const sub        = document.getElementById('rh-sub-182r');
+
+  resultsDiv.classList.add('show');
+
+  const isa  = isaTemp(alt);
+  const dev  = oat - isa;
+  const sign = dev >= 0 ? '+' : '';
+  const isInterp = !ALT_182R.includes(alt);
+  title.textContent = `${alt.toLocaleString()} ft${isInterp ? ' (interpolated)' : ''} · ${oat}°C OAT (ISA ${sign}${dev.toFixed(1)}°C)`;
+  sub.textContent   = `Settings within ±3% of ${want}% power · ranked by fuel flow`;
+
+  rowsDiv.innerHTML = '';
+
+  if (results.length === 0) {
+    colHead.style.display = 'none';
+    const msg = (want > maxPct)
+      ? `Maximum available power at these conditions is <strong>${maxPct}%</strong>.<br>
+        Try reducing your power target or selecting a lower altitude.`
+      : `That power setting isn't reachable at these conditions.<br>
+        Try increasing your power target or selecting a different altitude.`;
+    rowsDiv.innerHTML = `
+      <div class="no-results">
+        <div class="nr-main">No settings available for ${want}% power</div>
+        <div class="nr-sub">${msg}</div>
+      </div>`;
+  } else {
+    colHead.style.display = 'grid';
+    results.forEach((r, i) => {
+      const div = document.createElement('div');
+      div.className = 'result-row';
+      const mpDisplay = r.interpolated ? `≈${r.mp}` : r.mp;
+      div.innerHTML = `
+        <span class="cell rpm-mp">${r.rpm}</span>
+        <span class="cell rpm-mp">${mpDisplay}"</span>
+        <span class="cell pct">${r.pct}%</span>
+        <span class="cell">${r.tas} kt</span>
+        <span class="cell">${r.gph.toFixed(1)}<small> gph</small></span>`;
+      rowsDiv.appendChild(div);
+    });
+    if (results.some(r => r.interpolated)) {
+      const note = document.createElement('div');
+      note.className = 'interp-note';
+      note.style.margin = '10px 18px 4px';
+      note.textContent = '≈ Interpolated manifold pressure to hit this %HP exactly.';
+      rowsDiv.appendChild(note);
+    }
+  }
+
+  setTimeout(() => resultsDiv.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60);
+}
+
+document.getElementById('alt-182r').addEventListener('change', updateIsaHint182R);
+document.getElementById('oat-182r').addEventListener('change', updateIsaHint182R);
+document.getElementById('calcBtn-182r').addEventListener('click', render182R);
+updateIsaHint182R();
+
+
+// ═══════════════════════ DAKOTA LOGIC ═══════════════════════
+
+// POH_DAKOTA[alt][rpm][pct] = [cold_mp, cold_tas, cold_gph, std_mp, std_tas, std_gph, hot_mp, hot_tas, hot_gph]
+// 'FT' = Full Throttle (manifold pressure not numerically specified)
+const POH_DAKOTA = {
+  2000: { temps:[-5,11,31],
+    2400:{75:[22.0,124,12.7,22.6,128,12.7,23.4,132,12.7],65:[20.1,115,10.9,20.6,116,10.9,21.3,122,10.9],55:[17.8,100,9.3,18.3,103,9.3,18.9,109,9.3]},
+    2300:{75:[22.8,124,12.7,23.4,127,12.7,24.2,132,12.7],65:[20.6,115,10.9,21.2,118,10.9,21.9,122,10.9],55:[18.5,100,9.3,19.0,104,9.3,19.6,108,9.3]},
+    2200:{75:[23.5,124,12.7,24.1,127,12.7,24.9,132,12.7],65:[21.3,115,10.9,21.9,118,10.9,22.6,122,10.9],55:[19.0,100,9.3,19.5,104,9.3,20.2,109,9.3]},
+    2100:{65:[22.1,115,10.9,22.7,118,10.9,23.5,122,10.9],55:[19.8,100,9.3,20.3,104,9.3,21.0,109,9.3]},
+  },
+  4000: { temps:[-13,7,27],
+    2400:{75:[21.4,126,12.7,22.1,131,12.7,22.8,135,12.7],65:[19.5,117,10.9,20.2,121,10.9,20.9,125,10.9],55:[17.3,102,9.3,17.9,108,9.3,18.5,112,9.3]},
+    2300:{75:[22.0,126,12.7,22.8,131,12.7,23.6,135,12.7],65:[20.1,117,10.9,20.8,121,10.9,21.5,125,10.9],55:[17.9,102,9.3,18.5,108,9.3,19.1,112,9.3]},
+    2200:{75:[22.7,126,12.7,23.5,131,12.7,24.3,135,12.7],65:[20.7,117,10.9,21.4,121,10.9,22.1,125,10.9],55:[18.5,102,9.3,19.1,108,9.3,19.7,112,9.3]},
+    2100:{65:[21.4,117,10.9,22.1,121,10.9,22.8,125,10.9],55:[19.1,102,9.3,19.8,108,9.3,20.5,112,9.3]},
+  },
+  6000: { temps:[-17,3,23],
+    2400:{75:[21.0,130,12.7,21.7,135,12.7,22.4,139,12.7],65:[19.0,121,10.9,19.7,125,10.9,20.4,128,10.9],55:[16.9,108,9.3,17.5,112,9.3,18.1,116,9.3]},
+    2300:{75:[21.6,130,12.7,22.3,135,12.7,23.0,139,12.7],65:[19.6,121,10.9,20.3,125,10.9,21.0,128,10.9],55:[17.5,108,9.3,18.1,112,9.3,18.7,116,9.3]},
+    2200:{75:['FT',130,12.7,'FT',135,12.7,'FT',139,12.7],65:[20.3,121,10.9,21.0,125,10.9,21.7,128,10.9],55:[18.0,108,9.3,18.6,112,9.3,19.2,116,9.3]},
+    2100:{65:[20.9,121,10.9,21.6,125,10.9,22.3,128,10.9],55:[18.7,108,9.3,19.3,112,9.3,19.9,116,9.3]},
+  },
+  8000: { temps:[-21,-1,19],
+    2400:{75:['FT',134,12.7,'FT',138,12.7,'FT',135,12.7],65:[18.7,124,10.9,19.3,128,10.9,19.9,132,10.9],55:[16.6,111,9.3,17.2,115,9.3,17.8,129,9.3]},
+    2300:{65:[19.2,124,10.9,19.9,128,10.9,20.6,132,10.9],55:[17.1,111,9.3,17.7,115,9.3,18.3,129,9.3]},
+    2200:{65:[19.8,124,10.9,20.5,128,10.9,21.2,132,10.9],55:[17.6,111,9.3,18.2,115,9.3,18.8,129,9.3]},
+    2100:{65:[20.4,124,10.9,21.1,128,10.9,21.8,132,10.9],55:[18.2,111,9.3,18.8,115,9.3,19.4,129,9.3]},
+  },
+  10000: { temps:[-25,-5,15],
+    2400:{65:[18.3,127,10.9,18.9,132,10.9,19.5,133,10.9],55:[16.2,114,9.3,16.8,118,9.3,17.4,122,9.3]},
+    2300:{65:[18.8,127,10.9,19.4,132,10.9,20.0,133,10.9],55:[16.6,114,9.3,17.2,118,9.3,17.8,122,9.3]},
+    2200:{65:['FT',127,10.9,'FT',132,10.9,'FT',133,10.9],55:[17.1,114,9.3,17.7,118,9.3,18.3,122,9.3]},
+    2100:{55:[17.7,114,9.3,18.3,118,9.3,18.9,122,9.3]},
+  },
+  12000: { temps:[-29,-9,11],
+    2400:{55:[15.9,118,9.3,16.4,122,9.3,16.9,124,9.3]},
+    2300:{55:[16.2,118,9.3,16.8,122,9.3,17.4,124,9.3]},
+    2200:{55:[16.7,118,9.3,17.3,122,9.3,17.9,124,9.3]},
+    2100:{55:[17.2,118,9.3,17.8,122,9.3,18.4,124,9.3]},
+  },
+};
+
+const ALT_DAKOTA = [2000, 4000, 6000, 8000, 10000, 12000];
+const RPMS_DAKOTA = [2400, 2300, 2200, 2100];
+
+(function buildAltSelectDakota() {
+  const sel = document.getElementById('alt-dakota');
+  for (let a = 2000; a <= 12000; a += 500) {
+    const opt = document.createElement('option');
+    opt.value = a;
+    opt.textContent = a.toLocaleString() + ' ft' + (ALT_DAKOTA.includes(a) ? '' : ' ✦');
+    if (a === 6000) opt.selected = true;
+    sel.appendChild(opt);
+  }
+})();
+
+// Populate OAT select (-25°C to 42°C)
+(function buildOatSelectDakota() {
+  const sel = document.getElementById('oat-dakota');
+  for (let t = -25; t <= 42; t++) {
+    const opt = document.createElement('option');
+    opt.value = t;
+    opt.textContent = t + '°C';
+    if (t === 15) opt.selected = true;
+    sel.appendChild(opt);
+  }
+})();
+
+// Populate desired power select (55%-75% in 5% steps)
+(function buildPctSelectDakota() {
+  const sel = document.getElementById('pct-dakota');
+  for (let p = 55; p <= 75; p += 5) {
+    const opt = document.createElement('option');
+    opt.value = p;
+    opt.textContent = p + '%';
+    if (p === 65) opt.selected = true;
+    sel.appendChild(opt);
+  }
+})();
+
+
+function tempFracDakota(oat, temps) {
+  if (oat <= temps[0]) return [0, 0, 0];
+  if (oat >= temps[2]) return [2, 2, 0];
+  if (oat <= temps[1]) return [0, 1, (oat - temps[0]) / (temps[1] - temps[0])];
+  return [1, 2, (oat - temps[1]) / (temps[2] - temps[1])];
+}
+
+function interpTempDakota(vals, oat, temps) {
+  const [lo, hi, f] = tempFracDakota(oat, temps);
+  const lb = lo * 3, hb = hi * 3;
+  const mpLo = vals[lb], mpHi = vals[hb];
+  const mp = (mpLo === 'FT' || mpHi === 'FT') ? 'FT' : mpLo + (mpHi - mpLo) * f;
+  const tas = vals[lb+1] + (vals[hb+1] - vals[lb+1]) * f;
+  const gph = vals[lb+2] + (vals[hb+2] - vals[lb+2]) * f;
+  return { mp, tas, gph };
+}
+
+function getPctRowsAtAltDakota(alt, oat) {
+  const data = POH_DAKOTA[alt];
+  const out = {};
+  for (const rpm of RPMS_DAKOTA) {
+    if (!data[rpm]) continue;
+    out[rpm] = {};
+    for (const pct of Object.keys(data[rpm]).map(Number)) {
+      out[rpm][pct] = interpTempDakota(data[rpm][pct], oat, data.temps);
+    }
+  }
+  return out;
+}
+
+function interpPctForRpmDakota(pctRows, wantPct) {
+  const keys = Object.keys(pctRows).map(Number).sort((a,b)=>a-b);
+  if (keys.length === 0) return null;
+  let lo, hi;
+  if (wantPct <= keys[0]) { lo = keys[0]; hi = keys.length>1 ? keys[1] : keys[0]; }
+  else if (wantPct >= keys[keys.length-1]) { lo = keys.length>1 ? keys[keys.length-2] : keys[0]; hi = keys[keys.length-1]; }
+  else {
+    lo = keys[0]; hi = keys[keys.length-1];
+    for (let i=0;i<keys.length-1;i++) {
+      if (keys[i] <= wantPct && wantPct <= keys[i+1]) { lo=keys[i]; hi=keys[i+1]; break; }
+    }
+  }
+  const f = (lo===hi) ? 0 : (wantPct - lo) / (hi - lo);
+  const a = pctRows[lo], b = pctRows[hi];
+  if (f === 0) return { mp: a.mp, tas: a.tas, gph: a.gph };
+  if (f === 1) return { mp: b.mp, tas: b.tas, gph: b.gph };
+  const mp = (a.mp === 'FT' || b.mp === 'FT') ? 'FT' : a.mp + (b.mp - a.mp) * f;
+  const tas = a.tas + (b.tas - a.tas) * f;
+  const gph = a.gph + (b.gph - a.gph) * f;
+  return { mp, tas, gph };
+}
+
+function calculateDakota(altFt, oat, wantPct, tol=3) {
+  let pctRows;
+  if (ALT_DAKOTA.includes(altFt)) {
+    pctRows = getPctRowsAtAltDakota(altFt, oat);
+  } else {
+    const loAlt = Math.max(...ALT_DAKOTA.filter(a => a < altFt));
+    const hiAlt = Math.min(...ALT_DAKOTA.filter(a => a > altFt));
+    const af = (altFt - loAlt) / (hiAlt - loAlt);
+    const loRows = getPctRowsAtAltDakota(loAlt, oat);
+    const hiRows = getPctRowsAtAltDakota(hiAlt, oat);
+    pctRows = {};
+    for (const rpm of RPMS_DAKOTA) {
+      if (!loRows[rpm] || !hiRows[rpm]) continue;
+      pctRows[rpm] = {};
+      const commonPcts = Object.keys(loRows[rpm]).map(Number).filter(p => hiRows[rpm][p] !== undefined);
+      for (const pct of commonPcts) {
+        const a = loRows[rpm][pct], b = hiRows[rpm][pct];
+        const mp = (a.mp === 'FT' || b.mp === 'FT') ? 'FT' : a.mp + (b.mp - a.mp) * af;
+        const tas = a.tas + (b.tas - a.tas) * af;
+        const gph = a.gph + (b.gph - a.gph) * af;
+        pctRows[rpm][pct] = { mp, tas, gph };
+      }
+    }
+  }
+
+  // Determine the overall achievable %HP range as the UNION across RPMs
+  // (a %HP is "available" if at least one RPM setting supports it)
+  let minPct = Infinity, maxPct = -Infinity;
+  for (const rpm of RPMS_DAKOTA) {
+    if (!pctRows[rpm]) continue;
+    const keys = Object.keys(pctRows[rpm]).map(Number);
+    if (keys.length === 0) continue;
+    minPct = Math.min(minPct, Math.min(...keys));
+    maxPct = Math.max(maxPct, Math.max(...keys));
+  }
+  if (minPct === Infinity) return { groups: [], minPct: 0, maxPct: 0 };
+
+  const lowBound = Math.max(55, minPct);
+  const highBound = Math.min(75, maxPct);
+
+  // Candidate %HP values: want-3, want, want+3 — clamped to [lowBound, highBound]
+  let candidatePcts = [...new Set([wantPct - 3, wantPct, wantPct + 3])]
+    .filter(p => p >= lowBound && p <= highBound)
+    .sort((a,b) => a-b);
+
+  // If want itself is out of bounds entirely, return empty with bounds info
+  if (wantPct < lowBound - 3 || wantPct > highBound + 3) {
+    return { groups: [], minPct: lowBound, maxPct: highBound };
+  }
+
+  const groups = [];
+  for (const pct of candidatePcts) {
+    const rows = [];
+    for (const rpm of RPMS_DAKOTA) {
+      if (!pctRows[rpm]) continue;
+      const keys = Object.keys(pctRows[rpm]).map(Number);
+      if (keys.length === 0) continue;
+      const rpmMin = Math.min(...keys), rpmMax = Math.max(...keys);
+      // Only include this RPM if pct is within ITS supported range
+      if (pct < rpmMin || pct > rpmMax) continue;
+      const r = interpPctForRpmDakota(pctRows[rpm], pct);
+      if (r) rows.push({ rpm, ...r });
+    }
+    if (rows.length === 0) continue;
+    const avgGph = rows.reduce((s,r)=>s+r.gph,0) / rows.length;
+    const avgTas = rows.reduce((s,r)=>s+r.tas,0) / rows.length;
+    groups.push({ pct, rows, gph: avgGph, tas: avgTas });
+  }
+
+  groups.sort((a,b) => a.gph - b.gph);
+  return { groups, minPct: lowBound, maxPct: highBound };
+}
+
+function updateIsaHintDakota() {
+  const alt = parseInt(document.getElementById('alt-dakota').value);
+  const oat = parseFloat(document.getElementById('oat-dakota').value);
+  if (isNaN(oat)) return;
+  const isa = isaTemp(alt);
+  const dev = oat - isa;
+  const sign = dev >= 0 ? '+' : '';
+  document.getElementById('isaDev-dakota').textContent =
+    `ISA ${sign}${dev.toFixed(1)}°C  (ISA = ${isa.toFixed(1)}°C at ${(alt/1000).toFixed(1)}k ft)`;
+}
+
+function renderDakota() {
+  const alt  = parseInt(document.getElementById('alt-dakota').value);
+  const oat  = parseFloat(document.getElementById('oat-dakota').value);
+  const want = parseFloat(document.getElementById('pct-dakota').value);
+
+  const { groups, minPct, maxPct } = calculateDakota(alt, oat, want);
+
+  const resultsDiv = document.getElementById('results-dakota');
+  const groupsDiv  = document.getElementById('result-groups-dakota');
+  const title      = document.getElementById('rh-title-dakota');
+  const sub        = document.getElementById('rh-sub-dakota');
+
+  resultsDiv.classList.add('show');
+
+  const isa  = isaTemp(alt);
+  const dev  = oat - isa;
+  const sign = dev >= 0 ? '+' : '';
+  const isInterp = !ALT_DAKOTA.includes(alt);
+  title.textContent = `${alt.toLocaleString()} ft${isInterp ? ' (interpolated)' : ''} · ${oat}°C OAT (ISA ${sign}${dev.toFixed(1)}°C)`;
+  sub.textContent   = `Settings near ${want}% power · ranked by fuel flow (most to least economical)`;
+
+  groupsDiv.innerHTML = '';
+
+  if (groups.length === 0) {
+    groupsDiv.innerHTML = `
+      <div class="no-results">
+        <div class="nr-main">No settings available for ${want}% power</div>
+        <div class="nr-sub">At these conditions, available power range is <strong>${minPct}%–${maxPct}%</strong>.<br>
+        Try adjusting your power target or altitude.</div>
+      </div>`;
+  } else {
+    groups.forEach((g, i) => {
+      const div = document.createElement('div');
+      div.className = 'group';
+      const tasStr = g.tas.toFixed(0);
+      const gphStr = g.gph.toFixed(1);
+      let rowsHtml = `<div class="col-head-dakota"><span>RPM</span><span>M.P.</span></div>`;
+      for (const r of g.rows) {
+        const mpStr = (r.mp === 'FT') ? 'FULL THROTTLE' : `${r.mp.toFixed(1)}"`;
+        const mpClass = (r.mp === 'FT') ? 'cell-mp ft' : 'cell-mp';
+        rowsHtml += `<div class="rpm-row"><span class="cell-rpm">${r.rpm}</span><span class="${mpClass}">${mpStr}</span></div>`;
+      }
+      div.innerHTML = `
+        <div class="group-head">
+          <span class="gh-pct">${g.pct}% power</span>
+          <span class="gh-perf">${tasStr} kt &nbsp;·&nbsp; <span class="gph-val">${gphStr} gph</span></span>
+        </div>
+        ${rowsHtml}`;
+      groupsDiv.appendChild(div);
+    });
+  }
+
+  setTimeout(() => resultsDiv.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60);
+}
+
+document.getElementById('alt-dakota').addEventListener('change', updateIsaHintDakota);
+document.getElementById('oat-dakota').addEventListener('change', updateIsaHintDakota);
+document.getElementById('calcBtn-dakota').addEventListener('click', renderDakota);
+updateIsaHintDakota();
+
+
+// ═══════════════════════ 172S LOGIC ═══════════════════════
+
+// POH_172S[alt][rpm] = [cold_pct, cold_tas, cold_gph, std_pct, std_tas, std_gph, hot_pct, hot_tas, hot_gph]
+const POH_172S = {
+  2000: { temps:[-9,11,31],
+    2550:[83,117,11.1,77,118,10.5,72,117,9.9],
+    2500:[78,115,10.6,73,115,9.9,68,115,9.4],
+    2400:[69,111,9.6,64,110,9.0,60,109,8.5],
+    2300:[61,105,8.6,57,104,8.1,53,102,7.7],
+    2200:[53,99,7.7,50,97,7.3,47,95,6.9],
+    2100:[47,92,6.9,44,90,6.6,42,89,6.3],
+  },
+  4000: { temps:[-13,7,27],
+    2600:[83,120,11.1,77,120,10.4,72,119,9.8],
+    2550:[79,118,10.6,73,117,9.9,68,117,9.4],
+    2500:[74,115,10.1,69,115,9.5,64,114,8.9],
+    2400:[65,110,9.1,61,109,8.5,57,107,8.1],
+    2300:[58,104,8.2,54,102,7.7,51,101,7.3],
+    2200:[51,98,7.4,48,96,7.0,45,94,6.7],
+    2100:[45,91,6.6,42,89,6.4,40,87,6.1],
+  },
+  6000: { temps:[-17,3,23],
+    2650:[83,122,11.1,77,122,10.4,72,121,9.8],
+    2600:[78,120,10.6,73,119,9.9,68,118,9.4],
+    2500:[70,115,9.6,65,114,9.0,60,112,8.5],
+    2400:[62,109,8.6,57,108,8.2,54,106,7.7],
+    2300:[54,103,7.8,51,101,7.4,48,99,7.0],
+    2200:[48,96,7.1,45,94,6.7,43,92,6.4],
+  },
+  8000: { temps:[-21,-1,19],
+    2700:[83,125,11.1,77,124,10.4,71,123,9.7],
+    2650:[78,122,10.5,72,122,9.9,67,120,9.3],
+    2600:[74,120,10.0,68,119,9.4,64,117,8.9],
+    2500:[65,114,9.1,61,112,8.6,57,111,8.1],
+    2400:[58,108,8.2,54,106,7.8,51,104,7.4],
+    2300:[52,101,7.5,48,99,7.1,46,97,6.8],
+    2200:[46,94,6.8,43,92,6.5,41,90,6.2],
+  },
+  10000: { temps:[-25,-5,15],
+    2700:[78,124,10.5,72,123,9.8,67,122,9.3],
+    2650:[73,122,10.0,68,120,9.4,63,119,8.9],
+    2600:[69,119,9.5,64,117,9.0,60,115,8.5],
+    2500:[62,113,8.7,57,111,8.2,54,109,7.8],
+    2400:[55,106,7.9,51,104,7.5,49,102,7.1],
+    2300:[49,100,7.2,46,97,6.8,44,95,6.5],
+  },
+  12000: { temps:[-29,-9,11],
+    2650:[69,121,9.5,64,119,8.9,60,117,8.5],
+    2600:[65,118,9.1,61,116,8.5,57,114,8.1],
+    2500:[58,111,8.3,54,109,7.8,51,107,7.4],
+    2400:[52,105,7.5,49,102,7.1,46,100,6.8],
+    2300:[47,98,6.9,44,95,6.6,41,92,6.3],
+  },
+};
+
+const ALT_172S = [2000, 4000, 6000, 8000, 10000, 12000];
+
+(function buildAltSelect172S() {
+  const sel = document.getElementById('alt-172s');
+  for (let a = 2000; a <= 12000; a += 500) {
+    const opt = document.createElement('option');
+    opt.value = a;
+    opt.textContent = a.toLocaleString() + ' ft' + (ALT_172S.includes(a) ? '' : ' ✦');
+    if (a === 6000) opt.selected = true;
+    sel.appendChild(opt);
+  }
+})();
+
+// Populate OAT select (-25°C to 42°C)
+(function buildOatSelect172S() {
+  const sel = document.getElementById('oat-172s');
+  for (let t = -25; t <= 42; t++) {
+    const opt = document.createElement('option');
+    opt.value = t;
+    opt.textContent = t + '°C';
+    if (t === 15) opt.selected = true;
+    sel.appendChild(opt);
+  }
+})();
+
+// Populate desired power select (50%-75% in 5% steps)
+(function buildPctSelect172S() {
+  const sel = document.getElementById('pct-172s');
+  for (let p = 50; p <= 75; p += 5) {
+    const opt = document.createElement('option');
+    opt.value = p;
+    opt.textContent = p + '%';
+    if (p === 65) opt.selected = true;
+    sel.appendChild(opt);
+  }
+})();
+
+
+function tempFrac172S(oat, temps) {
+  if (oat <= temps[0]) return [0, 0, 0];
+  if (oat >= temps[2]) return [2, 2, 0];
+  if (oat <= temps[1]) return [0, 1, (oat - temps[0]) / (temps[1] - temps[0])];
+  return [1, 2, (oat - temps[1]) / (temps[2] - temps[1])];
+}
+
+function interpRow172S(vals, oat, temps) {
+  const [lo, hi, f] = tempFrac172S(oat, temps);
+  const lb = lo * 3, hb = hi * 3;
+  return {
+    pct: vals[lb]   + (vals[hb]   - vals[lb])   * f,
+    tas: vals[lb+1] + (vals[hb+1] - vals[lb+1]) * f,
+    gph: vals[lb+2] + (vals[hb+2] - vals[lb+2]) * f,
+  };
+}
+
+function getAllAtAlt172S(alt, oat) {
+  const data = POH_172S[alt];
+  const out = {};
+  for (const rpm of Object.keys(data).filter(k => k !== 'temps').map(Number)) {
+    out[rpm] = interpRow172S(data[rpm], oat, data.temps);
+  }
+  return out;
+}
+
+function calculate172S(altFt, oat, wantPct) {
+  let blended;
+  if (ALT_172S.includes(altFt)) {
+    blended = getAllAtAlt172S(altFt, oat);
+  } else {
+    const loAlt = Math.max(...ALT_172S.filter(a => a < altFt));
+    const hiAlt = Math.min(...ALT_172S.filter(a => a > altFt));
+    const altF  = (altFt - loAlt) / (hiAlt - loAlt);
+    const loR   = getAllAtAlt172S(loAlt, oat);
+    const hiR   = getAllAtAlt172S(hiAlt, oat);
+    blended = {};
+    for (const rpm of Object.keys(loR)) {
+      if (!(rpm in hiR)) continue;
+      const lo = loR[rpm], hi = hiR[rpm];
+      blended[rpm] = {
+        pct: lo.pct + (hi.pct - lo.pct) * altF,
+        tas: lo.tas + (hi.tas - lo.tas) * altF,
+        gph: lo.gph + (hi.gph - lo.gph) * altF,
+      };
+    }
+  }
+
+  const allPcts = Object.values(blended).map(v => v.pct);
+  const maxPct  = allPcts.length ? Math.round(Math.max(...allPcts)) : 0;
+
+  let candidates = Object.entries(blended)
+    .filter(([rpm,v]) => Math.abs(v.pct - wantPct) <= 3)
+    .map(([rpm,v]) => ({ rpm: Number(rpm),
+      pct: Math.round(v.pct), tas: Math.round(v.tas), gph: Math.round(v.gph * 10) / 10 }))
+    .sort((a, b) => a.gph - b.gph);
+
+  // If no table RPM lands within ±3% of the target, but the target is
+  // achievable by interpolating between two adjacent RPM settings,
+  // calculate that intermediate RPM directly.
+  if (candidates.length === 0) {
+    const rows = Object.entries(blended)
+      .map(([rpm,v]) => ({ rpm: Number(rpm), pct: v.pct, tas: v.tas, gph: v.gph }))
+      .sort((a, b) => a.rpm - b.rpm);
+
+    for (let i = 0; i < rows.length - 1; i++) {
+      const a = rows[i], b = rows[i+1];
+      const lo = Math.min(a.pct, b.pct), hi = Math.max(a.pct, b.pct);
+      if (wantPct >= lo && wantPct <= hi && hi !== lo) {
+        const f = (wantPct - a.pct) / (b.pct - a.pct);
+        const rpm = Math.round((a.rpm + f * (b.rpm - a.rpm)) / 10) * 10;
+        const tas = a.tas + f * (b.tas - a.tas);
+        const gph = a.gph + f * (b.gph - a.gph);
+        candidates = [{
+          rpm, pct: Math.round(wantPct),
+          tas: Math.round(tas), gph: Math.round(gph * 10) / 10,
+          interpolated: true,
+        }];
+        break;
+      }
+    }
+  }
+
+  return { results: candidates, maxPct };
+}
+
+function updateIsaHint172S() {
+  const alt = parseInt(document.getElementById('alt-172s').value);
+  const oat = parseFloat(document.getElementById('oat-172s').value);
+  if (isNaN(oat)) return;
+  const isa = isaTemp(alt);
+  const dev = oat - isa;
+  const sign = dev >= 0 ? '+' : '';
+  document.getElementById('isaDev-172s').textContent =
+    `ISA ${sign}${dev.toFixed(1)}°C  (ISA = ${isa.toFixed(1)}°C at ${(alt/1000).toFixed(1)}k ft)`;
+}
+
+function render172S() {
+  const alt  = parseInt(document.getElementById('alt-172s').value);
+  const oat  = parseFloat(document.getElementById('oat-172s').value);
+  const want = parseFloat(document.getElementById('pct-172s').value);
+
+  const { results, maxPct } = calculate172S(alt, oat, want);
+
+  const resultsDiv = document.getElementById('results-172s');
+  const rowsDiv    = document.getElementById('result-rows-172s');
+  const colHead    = document.getElementById('col-head-172s');
+  const title      = document.getElementById('rh-title-172s');
+  const sub        = document.getElementById('rh-sub-172s');
+
+  resultsDiv.classList.add('show');
+
+  const isa  = isaTemp(alt);
+  const dev  = oat - isa;
+  const sign = dev >= 0 ? '+' : '';
+  const isInterp = !ALT_172S.includes(alt);
+  title.textContent = `${alt.toLocaleString()} ft${isInterp ? ' (interpolated)' : ''} · ${oat}°C OAT (ISA ${sign}${dev.toFixed(1)}°C)`;
+  sub.textContent   = `Settings within ±3% of ${want}% power · ranked by fuel flow`;
+
+  rowsDiv.innerHTML = '';
+
+  if (results.length === 0) {
+    colHead.style.display = 'none';
+    const msg = (want > maxPct)
+      ? `Maximum available power at these conditions is <strong>${maxPct}%</strong>.<br>
+        Try reducing your power target or selecting a lower altitude.`
+      : `That power setting isn't reachable at these conditions.<br>
+        Try increasing your power target or selecting a different altitude.`;
+    rowsDiv.innerHTML = `
+      <div class="no-results">
+        <div class="nr-main">No settings available for ${want}% power</div>
+        <div class="nr-sub">${msg}</div>
+      </div>`;
+  } else {
+    colHead.style.display = 'grid';
+    results.forEach((r, i) => {
+      const div = document.createElement('div');
+      div.className = 'result-row';
+      const rpmDisplay = r.interpolated ? `≈${r.rpm}` : r.rpm;
+      div.innerHTML = `
+        <span class="cell rpm">${rpmDisplay}</span>
+        <span class="cell pct">${r.pct}%</span>
+        <span class="cell">${r.tas} kt</span>
+        <span class="cell">${r.gph.toFixed(1)}<small> gph</small></span>`;
+      rowsDiv.appendChild(div);
+    });
+    if (results.some(r => r.interpolated)) {
+      const note = document.createElement('div');
+      note.className = 'interp-note';
+      note.style.margin = '10px 18px 4px';
+      note.textContent = '≈ Interpolated between adjacent RPM settings to hit this %HP exactly.';
+      rowsDiv.appendChild(note);
+    }
+  }
+
+  setTimeout(() => resultsDiv.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60);
+}
+
+document.getElementById('alt-172s').addEventListener('change', updateIsaHint172S);
+document.getElementById('oat-172s').addEventListener('change', updateIsaHint172S);
+document.getElementById('calcBtn-172s').addEventListener('click', render172S);
+updateIsaHint172S();
+
+</script>
+</body>
+</html>
